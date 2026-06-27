@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>WebGIS 3D - Quản lý Cây xanh Khu II ĐH Cần Thơ</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.105/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.105/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        html, body, #cesiumContainer {
+            width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        /* Bảng điều khiển thuộc tính bên trái */
+        #panel {
+            position: absolute; top: 20px; left: 20px; width: 320px;
+            background: rgba(255, 255, 255, 0.95); padding: 15px;
+            border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 1000; pointer-events: auto;
+        }
+        h3 { margin-top: 0; color: #007bc3; border-bottom: 2px solid #007bc3; padding-bottom: 5px;}
+        .form-group { margin-bottom: 12px; }
+        label { font-weight: bold; display: block; margin-bottom: 4px; font-size: 13px;}
+        input[type="number"] { width: 100%; padding: 6px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px;}
+        .result-box { background: #eef7fc; padding: 10px; border-radius: 4px; margin-top: 10px; font-size: 13px;}
+        .result-item { margin-bottom: 6px; }
+        .emphasis { font-weight: bold; color: #d32f2f; }
+    </style>
+</head>
+<body>
+
+    <div id="panel">
+        <h3>THUỘC TÍNH CÂY XANH</h3>
+        <div id="instruction"><i>Nhấp chọn một cây trên bản đồ 3D để xem và chỉnh sửa thông tin.</i></div>
+        <div id="formFields" style="display: none;">
+            <div class="form-group">
+                <label>Mã số cây:</label>
+                <input type="text" id="treeId" disabled style="width:100%; padding:6px; background:#eee; border:1px solid #ccc;">
+            </div>
+            <div class="form-group">
+                <label>Loại cây:</label>
+                <input type="text" id="treeType" disabled style="width:100%; padding:6px; background:#eee; border:1px solid #ccc;">
+            </div>
+            <div class="form-group">
+                <label>Đường kính DBH (cm):</label>
+                <input type="number" id="treeDBH" step="0.1" min="1">
+            </div>
+            <div class="result-box">
+                <div class="result-item">Sinh khối mặt đất (AGB): <span id="resAGB" class="emphasis">0</span> kg</div>
+                <div class="result-item">Lượng Carbon tích lũy (C): <span id="resC" class="emphasis">0</span> kg</div>
+                <div class="result-item">Lượng CO2 hấp thụ: <span id="resCO2" class="emphasis">0</span> kg</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="cesiumContainer"></div>
+
+    <script>
+        // 1. Khởi tạo bản đồ Cesium 3D toàn cầu
+        const viewer = new Cesium.Viewer('cesiumContainer', {
+            terrainProvider: Cesium.createWorldTerrain(), // Bật địa hình 3D
+            animation: false, timeline: false, infoBox: false
+        });
+
+        // Định vị bản đồ thẳng vào Khu II Đại học Cần Thơ
+        viewer.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(105.768, 10.030, 500), // Tọa độ trung tâm Khu II
+            orientation: { pitch: Cesium.Math.toRadians(-45) } // Góc nhìn nghiêng 3D
+        });
+
+        let selectedEntity = null;
+
+        // 2. Hàm toán học tự động tính toán sinh khối và carbon theo thời gian thực
+        function calculateBiomass(dbh) {
+            // Công thức Allometric minh họa (Bạn có thể thay đổi hệ số cho đúng loài cây)
+            const agb = 0.0509 * Math.pow(dbh, 2);
+            const c = agb * 0.47;
+            const co2 = c * 3.667;
+            return {
+                agb: agb.toFixed(2),
+                c: c.toFixed(2),
+                co2: co2.toFixed(2)
+            };
+        }
+
+        // 3. Đọc dữ liệu GeoJSON đã xuất từ QGIS
+        fetch('ctu_biomass.geojson')
+            .then(response => response.json())
+            .then(geojsonData => {
+                // Duyệt qua từng điểm cây xanh trong file dữ liệu
+                geojsonData.features.forEach(feature => {
+                    const coords = feature.geometry.coordinates;
+                    const props = feature.properties;
+                    
+                    const dbhInit = parseFloat(props["DBH1.3"]) || 15.0;
+                    const metrics = calculateBiomass(dbhInit);
+
+                    // Biến điểm kinh vĩ độ thành mô hình khối hình trụ 3D trên WebGIS
+                    const treeEntity = viewer.entities.add({
+                        position: Cesium.Cartesian3.fromDegrees(coords[0], coords[1], 0),
+                        name: "Cây số " + (props["Number_tre"] || "Chưa rõ"),
+                        properties: {
+                            id: props["Number_tre"] || "N/A",
+                            type: props["Type_tree"] || "Xoài",
+                            dbh: dbhInit,
+                            agb: metrics.agb,
+                            c: metrics.c,
+                            co2: metrics.co2
+                        },
+                        // Mô phỏng cây bằng khối hình trụ (Thân cây to ra dựa trên DBH)
+                        cylinder: {
+                            length: dbhInit * 0.4, // Chiều cao cây giả định tỷ lệ với DBH
+                            topRadius: dbhInit * 0.05, // Độ rộng tán cây trên
+                            bottomRadius: dbhInit * 0.02, // Độ rộng gốc cây
+                            material: Cesium.Color.fromCssColorString('#8e44ad').withAlpha(0.8), // Màu tím giống QGIS
+                            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+                        }
+                    });
+                });
+            });
+
+        // 4. Bắt sự kiện Nhấp chuột (Click) vào cây trên không gian 3D
+        const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+        handler.setInputAction(function(movement) {
+            const pickedObject = viewer.scene.pick(movement.position);
+            if (Cesium.defined(pickedObject) && pickedObject.id) {
+                selectedEntity = pickedObject.id;
+                
+                // Hiển thị Form thuộc tính cây
+                document.getElementById('instruction').style.display = 'none';
+                document.getElementById('formFields').style.display = 'block';
+                
+                // Đổ dữ liệu cũ của cây vào Form
+                document.getElementById('treeId').value = selectedEntity.properties.id.getValue();
+                document.getElementById('treeType').value = selectedEntity.properties.type.getValue();
+                document.getElementById('treeDBH').value = selectedEntity.properties.dbh.getValue();
+                
+                // Cập nhật kết quả tính toán lên giao diện
+                updateLabels(selectedEntity.properties.agb.getValue(), selectedEntity.properties.c.getValue(), selectedEntity.properties.co2.getValue());
+            }
+        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+        // 5. Logic tự động thay đổi: Khi người dùng sửa DBH trong ô nhập liệu
+        document.getElementById('treeDBH').addEventListener('input', function(e) {
+            if (!selectedEntity) return;
+            
+            const newDBH = parseFloat(e.target.value);
+            if (isNaN(newDBH) || newDBH <= 0) return;
+
+            // Chạy hàm tự động tính toán lại tức thời các thông số Carbon
+            const newMetrics = calculateBiomass(newDBH);
+
+            // Cập nhật lại kho dữ liệu lưu trữ của thực thể cây đó
+            selectedEntity.properties.dbh.setValue(newDBH);
+            selectedEntity.properties.agb.setValue(newMetrics.agb);
+            selectedEntity.properties.c.setValue(newMetrics.c);
+            selectedEntity.properties.co2.setValue(newMetrics.co2);
+
+            // TỰ ĐỘNG THAY ĐỔI HÌNH HỌC 3D: Cho hình trụ co giãn to/nhỏ theo số DBH mới
+            selectedEntity.cylinder.length = newDBH * 0.4;
+            selectedEntity.cylinder.topRadius = newDBH * 0.05;
+            selectedEntity.cylinder.bottomRadius = newDBH * 0.02;
+
+            // Cập nhật kết quả hiển thị ra màn hình cho người dùng xem
+            updateLabels(newMetrics.agb, newMetrics.c, newMetrics.co2);
+        });
+
+        function updateLabels(agb, c, co2) {
+            document.getElementById('resAGB').innerText = agb;
+            document.getElementById('resC').innerText = c;
+            document.getElementById('resCO2').innerText = co2;
+        }
+    </script>
+</body>
+</html>
