@@ -92,7 +92,7 @@
         }
 
         // 3. Đọc dữ liệu GeoJSON đã xuất từ QGIS
-        fetch('Ctu_carbon.geojson')
+        fetch('ctu_biomass.geojson')
             .then(response => response.json())
             .then(geojsonData => {
                 // Duyệt qua từng điểm cây xanh trong file dữ liệu
@@ -117,7 +117,7 @@
                         },
                         // Model 3D cây từ file Untitled.glb
                         model: {
-                            uri: 'Untitled.glb',
+                            uri: 'cay.glb',
                             scale: Math.max(2, dbhInit * 0.5), // Scale theo DBH
                             minimumPixelSize: 8,
                             maximumScale: 5000,
