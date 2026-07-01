@@ -133,6 +133,61 @@
     <script>
         Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI3OTkzNWQxNy01ODVhLTQzYWItOWUxOS04NjAzNzYxOTRhM2MiLCJpZCI6NDQ5NzU5LCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3ODI1NzQwMDV9.OvuV7B7rian780qmZaEsedVP6zr-_ulGXgX_Y_vX0Kw';
 
+        // =============================================================
+        // BƯỚC 1: ĐƯA ĐIỂM GEOJSON VÀ MÔ HÌNH .GLB VÀO BẢN ĐỒ
+        // Đọc file ctu_biomassnew.geojson, tạo entity cho từng cây
+        // với model 3D là file cay.glb, lưu vào entityMap để tra cứu
+        // =============================================================
+        let selectedEntity = null;
+        const entityMap = {};
+
+        function loadGeoJsonAndModel(viewer) {
+            fetch('ctu_biomassnew.geojson')
+                .then(r => r.json())
+                .then(geojsonData => {
+                    geojsonData.features.forEach(feature => {
+                        const coords = feature.geometry.coordinates;
+                        const props  = feature.properties;
+                        const dbhInit = parseFloat(props["DBH1.3"]) || 15.0;
+                        const hInit   = parseFloat(props["H"])       || 0;
+                        const metrics = calculateBiomass(dbhInit);
+
+                        const entity = viewer.entities.add({
+                            position: Cesium.Cartesian3.fromDegrees(coords[0], coords[1], 0),
+                            name: "Cây số " + (props["Number_tre"] || "Chưa rõ"),
+                            properties: {
+                                id:   props["Number_tre"] || "N/A",
+                                type: props["Type_tree"]  || "Xoài",
+                                area: props["Area"]        || "",
+                                dbh:  dbhInit,
+                                h:    hInit,
+                                agb:  metrics.agb,
+                                c:    metrics.c,
+                                co2:  metrics.co2,
+                                lng:  coords[0],
+                                lat:  coords[1],
+                            },
+                            model: {
+                                uri: 'cay.glb',
+                                scale: Math.max(2, dbhInit * 0.5),
+                                minimumPixelSize: 8,
+                                maximumScale: 5000,
+                                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+                            }
+                        });
+
+                        // Lưu vào bảng tra cứu theo mã cây
+                        const treeId = String(props["Number_tre"] || "").trim();
+                        if (treeId) entityMap[treeId] = entity;
+                    });
+                });
+        }
+
+        // =============================================================
+        // BƯỚC 2: BẢN ĐỒ NỀN KHU II ĐẠI HỌC CẦN THƠ
+        // Khởi tạo Cesium Viewer, bật ảnh vệ tinh Bing Maps,
+        // định vị camera thẳng vào Khu II ĐH Cần Thơ
+        // =============================================================
         const viewer = new Cesium.Viewer('cesiumContainer', {
             terrainProvider: Cesium.createWorldTerrain(),
             animation: false, timeline: false, infoBox: false
@@ -146,11 +201,47 @@
             orientation: { pitch: Cesium.Math.toRadians(-45) }
         });
 
-        let selectedEntity = null;
-        // Bảng tra cứu nhanh: { mã_cây → entity }
-        const entityMap = {};
+        // Gọi Bước 1 sau khi viewer đã sẵn sàng
+        loadGeoJsonAndModel(viewer);
 
-        // Tên đầy đủ các khu vực để gợi ý
+        // =============================================================
+        // BƯỚC 3: TÍNH TOÁN CÁC CHỈ SỐ CỦA CÂY
+        // Công thức Allometric tính AGB, Carbon, CO2 theo DBH
+        // Hàm updateLabels cập nhật kết quả lên giao diện
+        // Sự kiện input DBH → tự động tính lại tức thời
+        // =============================================================
+        function calculateBiomass(dbh) {
+            const agb = 0.0509 * Math.pow(dbh, 2);
+            const c   = agb * 0.47;
+            const co2 = c * 3.667;
+            return { agb: agb.toFixed(2), c: c.toFixed(2), co2: co2.toFixed(2) };
+        }
+
+        function updateLabels(agb, c, co2) {
+            document.getElementById('resAGB').innerText = agb;
+            document.getElementById('resC').innerText   = c;
+            document.getElementById('resCO2').innerText = co2;
+        }
+
+        document.getElementById('treeDBH').addEventListener('input', function(e) {
+            if (!selectedEntity) return;
+            const newDBH = parseFloat(e.target.value);
+            if (isNaN(newDBH) || newDBH <= 0) return;
+            const m = calculateBiomass(newDBH);
+            selectedEntity.properties.dbh.setValue(newDBH);
+            selectedEntity.properties.agb.setValue(m.agb);
+            selectedEntity.properties.c.setValue(m.c);
+            selectedEntity.properties.co2.setValue(m.co2);
+            selectedEntity.model.scale = Math.max(2, newDBH * 0.5);
+            updateLabels(m.agb, m.c, m.co2);
+        });
+
+        // =============================================================
+        // BƯỚC 4: THANH TÌM KIẾM VÀ HIỂN THỊ THÔNG TIN CÂY
+        // - Click cây trên bản đồ → hiện bảng thông tin
+        // - Tìm theo mã cây (VD: 283) hoặc tên khu vực (VD: CNTT, SP)
+        // - Gợi ý realtime khi gõ, Enter để tìm, bay đến vị trí cây
+        // =============================================================
         const AREA_NAMES = {
             'BK':    'Bách Khoa', 'CNTT': 'Công nghệ Thông tin',
             'HTR':   'Hội trường', 'KT':  'Kinh tế',
@@ -161,55 +252,6 @@
             'TS':    'Thủy sản', 'XH':   'Xã hội nhân văn'
         };
 
-        function calculateBiomass(dbh) {
-            const agb = 0.0509 * Math.pow(dbh, 2);
-            const c   = agb * 0.47;
-            const co2 = c * 3.667;
-            return { agb: agb.toFixed(2), c: c.toFixed(2), co2: co2.toFixed(2) };
-        }
-
-        // ── LOAD DỮ LIỆU ──────────────────────────────────────────────────────
-        fetch('ctu_biomassnew.geojson')
-            .then(r => r.json())
-            .then(geojsonData => {
-                geojsonData.features.forEach(feature => {
-                    const coords = feature.geometry.coordinates;
-                    const props  = feature.properties;
-                    const dbhInit = parseFloat(props["DBH1.3"]) || 15.0;
-                    const hInit   = parseFloat(props["H"])       || 0;
-                    const metrics = calculateBiomass(dbhInit);
-
-                    const entity = viewer.entities.add({
-                        position: Cesium.Cartesian3.fromDegrees(coords[0], coords[1], 0),
-                        name: "Cây số " + (props["Number_tre"] || "Chưa rõ"),
-                        properties: {
-                            id:   props["Number_tre"] || "N/A",
-                            type: props["Type_tree"]  || "Xoài",
-                            area: props["Area"]        || "",
-                            dbh:  dbhInit,
-                            h:    hInit,
-                            agb:  metrics.agb,
-                            c:    metrics.c,
-                            co2:  metrics.co2,
-                            lng:  coords[0],
-                            lat:  coords[1],
-                        },
-                        model: {
-                            uri: 'cay.glb',
-                            scale: Math.max(2, dbhInit * 0.5),
-                            minimumPixelSize: 8,
-                            maximumScale: 5000,
-                            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-                        }
-                    });
-
-                    // Lưu vào bảng tra cứu theo mã cây
-                    const treeId = String(props["Number_tre"] || "").trim();
-                    if (treeId) entityMap[treeId] = entity;
-                });
-            });
-
-        // ── HIỂN THỊ THÔNG TIN CÂY ────────────────────────────────────────────
         function showTreeInfo(entity) {
             selectedEntity = entity;
             const p = entity.properties;
@@ -225,7 +267,6 @@
             updateLabels(p.agb.getValue(), p.c.getValue(), p.co2.getValue());
         }
 
-        // ── CLICK TRÊN BẢN ĐỒ ─────────────────────────────────────────────────
         const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
         handler.setInputAction(function(movement) {
             const picked = viewer.scene.pick(movement.position);
@@ -235,27 +276,6 @@
             }
         }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-        // ── SỬA DBH → TÍNH LẠI ────────────────────────────────────────────────
-        document.getElementById('treeDBH').addEventListener('input', function(e) {
-            if (!selectedEntity) return;
-            const newDBH = parseFloat(e.target.value);
-            if (isNaN(newDBH) || newDBH <= 0) return;
-            const m = calculateBiomass(newDBH);
-            selectedEntity.properties.dbh.setValue(newDBH);
-            selectedEntity.properties.agb.setValue(m.agb);
-            selectedEntity.properties.c.setValue(m.c);
-            selectedEntity.properties.co2.setValue(m.co2);
-            selectedEntity.model.scale = Math.max(2, newDBH * 0.5);
-            updateLabels(m.agb, m.c, m.co2);
-        });
-
-        function updateLabels(agb, c, co2) {
-            document.getElementById('resAGB').innerText = agb;
-            document.getElementById('resC').innerText   = c;
-            document.getElementById('resCO2').innerText = co2;
-        }
-
-        // ── TÌM KIẾM ──────────────────────────────────────────────────────────
         const searchInput    = document.getElementById('searchInput');
         const searchDropdown = document.getElementById('searchDropdown');
         const noResult       = document.getElementById('noResult');
@@ -418,6 +438,7 @@
                 closeDropdown();
             }
         });
+
     </script>
 </body>
 </html>
