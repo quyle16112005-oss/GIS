@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>WebGIS 3D - Quản lý Cây xanh Khu II ĐH Cần Thơ</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.105/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.105/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        html, body, #cesiumContainer {
+            width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        /* ── PANEL TRÁI ── */
+        #panel {
+            position: absolute; top: 20px; left: 20px; width: 320px;
+            background: rgba(255,255,255,0.95); padding: 15px;
+            border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 1000;
+        }
+        h3 { margin-top: 0; color: #007bc3; border-bottom: 2px solid #007bc3; padding-bottom: 5px;}
+        .form-group { margin-bottom: 12px; }
+        label { font-weight: bold; display: block; margin-bottom: 4px; font-size: 13px;}
+        input[type="number"] { width: 100%; padding: 6px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px;}
+        .result-box { background: #eef7fc; padding: 10px; border-radius: 4px; margin-top: 10px; font-size: 13px;}
+        .result-item { margin-bottom: 6px; }
+        .emphasis { font-weight: bold; color: #d32f2f; }
+        .h-box { background: #fff8e1; padding: 10px; border-radius: 4px; margin-top: 8px; font-size: 13px; border-left: 3px solid #f9a825;}
+
+        /* ── THANH TÌM KIẾM ── */
+        #searchBar {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            z-index: 1000; width: 420px;
+        }
+        #searchWrapper {
+            display: flex; align-items: center;
+            background: white; border-radius: 24px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+            padding: 6px 14px; gap: 8px;
+        }
+        #searchIcon { font-size: 18px; color: #888; flex-shrink: 0; }
+        #searchInput {
+            flex: 1; border: none; outline: none;
+            font-size: 15px; background: transparent;
+            padding: 4px 0;
+        }
+        #searchInput::placeholder { color: #aaa; }
+        #btnSearch {
+            background: #007bc3; color: white; border: none;
+            padding: 6px 14px; border-radius: 16px; cursor: pointer;
+            font-size: 13px; font-weight: bold; white-space: nowrap;
+        }
+        #btnSearch:hover { background: #005f9e; }
+        #btnClear {
+            background: none; border: none; cursor: pointer;
+            font-size: 18px; color: #aaa; display: none; padding: 0 2px;
+        }
+        #btnClear:hover { color: #555; }
+
+        /* Dropdown gợi ý */
+        #searchDropdown {
+            display: none;
+            background: white; border-radius: 12px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+            margin-top: 6px; overflow: hidden;
+            max-height: 260px; overflow-y: auto;
+        }
+        .suggest-item {
+            padding: 10px 16px; cursor: pointer;
+            font-size: 13px; border-bottom: 1px solid #f0f0f0;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .suggest-item:last-child { border-bottom: none; }
+        .suggest-item:hover { background: #e8f4fd; }
+        .suggest-icon { font-size: 16px; }
+        .suggest-main { font-weight: bold; color: #333; }
+        .suggest-sub  { font-size: 11px; color: #888; margin-top: 1px; }
+        #noResult {
+            display: none; padding: 14px 16px;
+            color: #e53935; font-size: 13px; text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- PANEL THÔNG TIN CÂY -->
+    <div id="panel">
+        <h3>THUỘC TÍNH CÂY XANH</h3>
+        <div id="instruction"><i>Nhấp chọn một cây hoặc tìm kiếm để xem thông tin.</i></div>
+        <div id="formFields" style="display:none;">
+            <div class="form-group">
+                <label>Mã số cây:</label>
+                <input type="text" id="treeId" disabled style="width:100%;padding:6px;background:#eee;border:1px solid #ccc;">
+            </div>
+            <div class="form-group">
+                <label>Loại cây:</label>
+                <input type="text" id="treeType" disabled style="width:100%;padding:6px;background:#eee;border:1px solid #ccc;">
+            </div>
+            <div class="form-group">
+                <label>Khu vực:</label>
+                <input type="text" id="treeArea" disabled style="width:100%;padding:6px;background:#eee;border:1px solid #ccc;">
+            </div>
+            <div class="form-group">
+                <label>Đường kính DBH (cm):</label>
+                <input type="number" id="treeDBH" step="0.1" min="1">
+            </div>
+            <div class="h-box">
+                <div class="result-item">Chiều cao cây (H): <span id="resH" class="emphasis">0</span> m</div>
+            </div>
+            <div class="result-box">
+                <div class="result-item">Sinh khối mặt đất (AGB): <span id="resAGB" class="emphasis">0</span> kg</div>
+                <div class="result-item">Lượng Carbon tích lũy (C): <span id="resC" class="emphasis">0</span> kg</div>
+                <div class="result-item">Lượng CO2 hấp thụ: <span id="resCO2" class="emphasis">0</span> kg</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- THANH TÌM KIẾM -->
+    <div id="searchBar">
+        <div id="searchWrapper">
+            <span id="searchIcon">🔍</span>
+            <input id="searchInput" type="text"
+                placeholder="Nhập số thứ tự cây hoặc tên khu vực (VD: 283, CNTT, SP...)">
+            <button id="btnClear" onclick="clearSearch()">✕</button>
+            <button id="btnSearch" onclick="doSearch()">Tìm</button>
+        </div>
+        <div id="searchDropdown">
+            <div id="noResult">Không tìm thấy kết quả</div>
+        </div>
+    </div>
+
+    <div id="cesiumContainer"></div>
+
+    <script>
+        Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI3OTkzNWQxNy01ODVhLTQzYWItOWUxOS04NjAzNzYxOTRhM2MiLCJpZCI6NDQ5NzU5LCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3ODI1NzQwMDV9.OvuV7B7rian780qmZaEsedVP6zr-_ulGXgX_Y_vX0Kw';
+
+        // =============================================================
+        // BƯỚC 1: ĐƯA ĐIỂM GEOJSON VÀ MÔ HÌNH .GLB VÀO BẢN ĐỒ
+        // Đọc file ctu_biomassnew.geojson, tạo entity cho từng cây
+        // với model 3D là file cay.glb, lưu vào entityMap để tra cứu
+        // =============================================================
+        let selectedEntity = null;
+        const entityMap = {};
+
+        function loadGeoJsonAndModel(viewer) {
+            fetch('ctu_biomassnew.geojson')
+                .then(r => r.json())
+                .then(geojsonData => {
+                    geojsonData.features.forEach(feature => {
+                        const coords = feature.geometry.coordinates;
+                        const props  = feature.properties;
+                        const dbhInit = parseFloat(props["DBH1.3"]) || 15.0;
+                        const hInit   = parseFloat(props["H"])       || 0;
+                        const metrics = calculateBiomass(dbhInit);
+
+                        const entity = viewer.entities.add({
+                            position: Cesium.Cartesian3.fromDegrees(coords[0], coords[1], 0),
+                            name: "Cây số " + (props["Number_tre"] || "Chưa rõ"),
+                            properties: {
+                                id:   props["Number_tre"] || "N/A",
+                                type: props["Type_tree"]  || "Xoài",
+                                area: props["Area"]        || "",
+                                dbh:  dbhInit,
+                                h:    hInit,
+                                agb:  metrics.agb,
+                                c:    metrics.c,
+                                co2:  metrics.co2,
+                                lng:  coords[0],
+                                lat:  coords[1],
+                            },
+                            model: {
+                                uri: 'cay.glb',
+                                scale: Math.max(2, dbhInit * 0.5),
+                                minimumPixelSize: 8,
+                                maximumScale: 5000,
+                                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+                            }
+                        });
+
+                        // Lưu vào bảng tra cứu theo mã cây
+                        const treeId = String(props["Number_tre"] || "").trim();
+                        if (treeId) entityMap[treeId] = entity;
+                    });
+                });
+        }
+
+        // =============================================================
+        // BƯỚC 2: BẢN ĐỒ NỀN KHU II ĐẠI HỌC CẦN THƠ
+        // Khởi tạo Cesium Viewer, bật ảnh vệ tinh Bing Maps,
+        // định vị camera thẳng vào Khu II ĐH Cần Thơ
+        // =============================================================
+        const viewer = new Cesium.Viewer('cesiumContainer', {
+            terrainProvider: Cesium.createWorldTerrain(),
+            animation: false, timeline: false, infoBox: false
+        });
+        viewer.imageryLayers.removeAll();
+        viewer.imageryLayers.addImageryProvider(
+            new Cesium.IonImageryProvider({ assetId: 2 })
+        );
+        viewer.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(105.768, 10.030, 500),
+            orientation: { pitch: Cesium.Math.toRadians(-45) }
+        });
+
+        // Gọi Bước 1 sau khi viewer đã sẵn sàng
+        loadGeoJsonAndModel(viewer);
+
+        // =============================================================
+        // BƯỚC 3: TÍNH TOÁN CÁC CHỈ SỐ CỦA CÂY
+        // Công thức Allometric tính AGB, Carbon, CO2 theo DBH
+        // Hàm updateLabels cập nhật kết quả lên giao diện
+        // Sự kiện input DBH → tự động tính lại tức thời
+        // =============================================================
+        function calculateBiomass(dbh) {
+            const agb = 0.0509 * Math.pow(dbh, 2);
+            const c   = agb * 0.47;
+            const co2 = c * 3.667;
+            return { agb: agb.toFixed(2), c: c.toFixed(2), co2: co2.toFixed(2) };
+        }
+
+        function updateLabels(agb, c, co2) {
+            document.getElementById('resAGB').innerText = agb;
+            document.getElementById('resC').innerText   = c;
+            document.getElementById('resCO2').innerText = co2;
+        }
+
+        document.getElementById('treeDBH').addEventListener('input', function(e) {
+            if (!selectedEntity) return;
+            const newDBH = parseFloat(e.target.value);
+            if (isNaN(newDBH) || newDBH <= 0) return;
+            const m = calculateBiomass(newDBH);
+            selectedEntity.properties.dbh.setValue(newDBH);
+            selectedEntity.properties.agb.setValue(m.agb);
+            selectedEntity.properties.c.setValue(m.c);
+            selectedEntity.properties.co2.setValue(m.co2);
+            selectedEntity.model.scale = Math.max(2, newDBH * 0.5);
+            updateLabels(m.agb, m.c, m.co2);
+        });
+
+        // =============================================================
+        // BƯỚC 4: THANH TÌM KIẾM VÀ HIỂN THỊ THÔNG TIN CÂY
+        // - Click cây trên bản đồ → hiện bảng thông tin
+        // - Tìm theo mã cây (VD: 283) hoặc tên khu vực (VD: CNTT, SP)
+        // - Gợi ý realtime khi gõ, Enter để tìm, bay đến vị trí cây
+        // =============================================================
+        const AREA_NAMES = {
+            'BK':    'Bách Khoa', 'CNTT': 'Công nghệ Thông tin',
+            'HTR':   'Hội trường', 'KT':  'Kinh tế',
+            'KTX A': 'Ký túc xá A', 'KTX B': 'Ký túc xá B',
+            'MT':    'Môi trường', 'NDH': 'Nhà điều hành',
+            'NN':    'Nông nghiệp', 'SP':  'Sư phạm',
+            'TC':    'Thể chất', 'TN':   'Tự nhiên',
+            'TS':    'Thủy sản', 'XH':   'Xã hội nhân văn'
+        };
+
+        function showTreeInfo(entity) {
+            selectedEntity = entity;
+            const p = entity.properties;
+
+            document.getElementById('instruction').style.display  = 'none';
+            document.getElementById('formFields').style.display   = 'block';
+
+            document.getElementById('treeId').value   = p.id.getValue();
+            document.getElementById('treeType').value = p.type.getValue();
+            document.getElementById('treeArea').value = p.area.getValue();
+            document.getElementById('treeDBH').value  = p.dbh.getValue();
+            document.getElementById('resH').innerText = p.h.getValue().toFixed(1);
+            updateLabels(p.agb.getValue(), p.c.getValue(), p.co2.getValue());
+        }
+
+        const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+        handler.setInputAction(function(movement) {
+            const picked = viewer.scene.pick(movement.position);
+            if (Cesium.defined(picked) && picked.id && picked.id.properties) {
+                showTreeInfo(picked.id);
+                closeDropdown();
+            }
+        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+        const searchInput    = document.getElementById('searchInput');
+        const searchDropdown = document.getElementById('searchDropdown');
+        const noResult       = document.getElementById('noResult');
+
+        // Gõ → gợi ý realtime
+        searchInput.addEventListener('input', function() {
+            const q = this.value.trim();
+            document.getElementById('btnClear').style.display = q ? 'block' : 'none';
+            if (!q) { closeDropdown(); return; }
+            renderSuggestions(q);
+        });
+
+        // Enter → tìm luôn
+        searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') doSearch();
+        });
+
+        function renderSuggestions(q) {
+            const ql = q.toLowerCase();
+            const results = [];
+
+            // 1. Tìm theo mã cây (khớp chính xác hoặc bắt đầu bằng)
+            Object.keys(entityMap).forEach(id => {
+                if (id.startsWith(q) || id === q) {
+                    const p = entityMap[id].properties;
+                    results.push({
+                        entity: entityMap[id],
+                        label:  'Cây số ' + id,
+                        sub:    p.type.getValue() + ' · ' + p.area.getValue(),
+                        icon:   '🌳'
+                    });
+                }
+            });
+
+            // 2. Tìm theo tên khu vực (mã hoặc tên đầy đủ)
+            const areaMatches = new Set();
+            Object.keys(AREA_NAMES).forEach(code => {
+                const fullName = AREA_NAMES[code];
+                if (code.toLowerCase().includes(ql) || fullName.toLowerCase().includes(ql)) {
+                    areaMatches.add(code);
+                }
+            });
+            areaMatches.forEach(code => {
+                results.push({
+                    entity: null,
+                    areaCode: code,
+                    label:  'Khu vực: ' + code,
+                    sub:    AREA_NAMES[code],
+                    icon:   '📍'
+                });
+            });
+
+            // Giới hạn hiển thị tối đa 8 gợi ý
+            renderDropdown(results.slice(0, 8));
+        }
+
+        function renderDropdown(results) {
+            // Xoá các item cũ (giữ lại #noResult)
+            Array.from(searchDropdown.children).forEach(c => {
+                if (c.id !== 'noResult') c.remove();
+            });
+
+            if (results.length === 0) {
+                noResult.style.display = 'block';
+                searchDropdown.style.display = 'block';
+                return;
+            }
+            noResult.style.display = 'none';
+
+            results.forEach(r => {
+                const div = document.createElement('div');
+                div.className = 'suggest-item';
+                div.innerHTML = `
+                    <span class="suggest-icon">${r.icon}</span>
+                    <div>
+                        <div class="suggest-main">${r.label}</div>
+                        <div class="suggest-sub">${r.sub}</div>
+                    </div>`;
+                div.addEventListener('click', () => {
+                    if (r.entity) {
+                        // Click vào 1 cây cụ thể
+                        selectAndFly(r.entity);
+                    } else {
+                        // Click vào khu vực → bay đến cây đầu tiên của khu
+                        flyToArea(r.areaCode);
+                    }
+                    searchInput.value = r.label;
+                    document.getElementById('btnClear').style.display = 'block';
+                    closeDropdown();
+                });
+                searchDropdown.insertBefore(div, noResult);
+            });
+            searchDropdown.style.display = 'block';
+        }
+
+        function doSearch() {
+            const q = searchInput.value.trim();
+            if (!q) return;
+
+            // Thử tìm chính xác theo mã cây
+            if (entityMap[q]) {
+                selectAndFly(entityMap[q]);
+                closeDropdown();
+                return;
+            }
+            // Tìm theo khu vực
+            const ql = q.toLowerCase();
+            const matchedArea = Object.keys(AREA_NAMES).find(code =>
+                code.toLowerCase() === ql || AREA_NAMES[code].toLowerCase().includes(ql)
+            );
+            if (matchedArea) { flyToArea(matchedArea); closeDropdown(); return; }
+
+            // Không tìm thấy
+            renderDropdown([]);
+        }
+
+        // Bay đến cây và hiển thị thông tin
+        function selectAndFly(entity) {
+            showTreeInfo(entity);
+            const p = entity.properties;
+            viewer.camera.flyTo({
+                destination: Cesium.Cartesian3.fromDegrees(
+                    p.lng.getValue(), p.lat.getValue(), 80
+                ),
+                orientation: { pitch: Cesium.Math.toRadians(-40) },
+                duration: 1.8
+            });
+        }
+
+        // Bay đến khu vực (hiển thị tất cả cây trong khu)
+        function flyToArea(areaCode) {
+            // Tìm tọa độ trung bình của khu
+            const trees = Object.values(entityMap).filter(e =>
+                e.properties.area.getValue() === areaCode
+            );
+            if (trees.length === 0) return;
+            const avgLng = trees.reduce((s,e) => s + e.properties.lng.getValue(), 0) / trees.length;
+            const avgLat = trees.reduce((s,e) => s + e.properties.lat.getValue(), 0) / trees.length;
+            viewer.camera.flyTo({
+                destination: Cesium.Cartesian3.fromDegrees(avgLng, avgLat, 300),
+                orientation: { pitch: Cesium.Math.toRadians(-50) },
+                duration: 2
+            });
+            // Hiển thị thông tin cây đầu tiên của khu
+            showTreeInfo(trees[0]);
+        }
+
+        function closeDropdown() {
+            searchDropdown.style.display = 'none';
+        }
+        function clearSearch() {
+            searchInput.value = '';
+            document.getElementById('btnClear').style.display = 'none';
+            closeDropdown();
+        }
+
+        // Click bên ngoài → đóng dropdown
+        document.addEventListener('click', function(e) {
+            if (!document.getElementById('searchBar').contains(e.target)) {
+                closeDropdown();
+            }
+        });
+
+    </script>
+</body>
+</html>
