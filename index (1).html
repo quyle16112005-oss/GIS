@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Điểm cây xanh Khu II ĐH Cần Thơ</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.105/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.105/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        html, body, #cesiumContainer {
+            width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+
+    <script>
+        // Token Cesium Ion
+        Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI3OTkzNWQxNy01ODVhLTQzYWItOWUxOS04NjAzNzYxOTRhM2MiLCJpZCI6NDQ5NzU5LCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3ODI1NzQwMDV9.OvuV7B7rian780qmZaEsedVP6zr-_ulGXgX_Y_vX0Kw';
+
+        // Khởi tạo Cesium
+        const viewer = new Cesium.Viewer('cesiumContainer', {
+            animation: false,
+            timeline: false,
+            infoBox: false,
+        });
+
+        // Định vị camera vào Khu II ĐH Cần Thơ
+        viewer.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(105.768, 10.030, 500),
+            orientation: { pitch: Cesium.Math.toRadians(-45) }
+        });
+
+        // Đọc GeoJSON và hiển thị từng cây thành 1 điểm xanh
+        fetch('ctu_biomassnew.geojson')
+            .then(r => r.json())
+            .then(data => {
+                data.features.forEach(feature => {
+                    const coords = feature.geometry.coordinates;
+                    viewer.entities.add({
+                        position: Cesium.Cartesian3.fromDegrees(coords[0], coords[1], 0),
+                        point: {
+                            pixelSize: 6,
+                            color: Cesium.Color.LIME,
+                            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+                        }
+                    });
+                });
+            });
+    </script>
+</body>
+</html>
